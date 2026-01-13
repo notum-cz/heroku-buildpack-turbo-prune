@@ -4,19 +4,21 @@ This buildpack runs `turbo prune --docker` **before** the Heroku Node.js buildpa
 
 Result: **faster installs** and a **smaller slug** when deploying a Turborepo monorepo to Heroku.
 
-- Intended for the **[strapi-next-monorepo-starter](https://github.com/notum-cz/strapi-next-monorepo-starter)** monorepo (Strapi + Next.js) deployed to Heroku, but should work in other Turborepo monorepos as well.
 - Intended for deploying **multiple separate Heroku apps from the same repo**, where each app prunes to a different workspace scope.
+- Intended for the **[strapi-next-monorepo-starter](https://github.com/notum-cz/strapi-next-monorepo-starter)** monorepo (Strapi + Next.js) deployed to Heroku, but should work in other Turborepo monorepos as well.
 
 ## Installation on Heroku
 
-Add **two buildpacks**, in this order:
+Add buildpacks **in this order**:
 
 1. `https://github.com/notum-cz/heroku-buildpack-turbo-prune`
 2. `heroku/nodejs`
+---
+3. (optional) `https://github.com/notum-cz/heroku-buildpack-next-standalone-slim` (additional buildpack when deploying a Next.js app with `standalone` output)
 
 ## How it works
 
-[Heroku’s Node.js buildpack](https://github.com/heroku/heroku-buildpack-nodejs) installs dependencies first and only then runs `build` (or `heroku-postbuild`). In a monorepo that often installs far more dependencies than needed.
+[Heroku’s Node.js buildpack](https://github.com/heroku/heroku-buildpack-nodejs) installs dependencies first and only then runs `build` (or [`heroku-postbuild`](https://devcenter.heroku.com/articles/nodejs-classic-buildpack-builds#add-steps-before-or-after-heroku-specific-build-steps)). In a monorepo that often installs far more dependencies than needed.
 
 This buildpack changes the order:
 
@@ -36,16 +38,12 @@ This buildpack changes the order:
 
 These are set **per Heroku app/dyno** as Heroku config vars:
 
-- `WORKSPACE` – the scope passed to `turbo prune`, e.g.:
-  - `@repo/ui`
-  - `@repo/strapi`
-- `APP` – the app folder name under `apps/`, e.g.:
-  - `ui`
-  - `strapi`
+- `WORKSPACE` – the scope passed to `turbo prune` - e.g. `@repo/ui`, `@repo/strapi`
+- `APP` – the app folder name under `apps/` - e.g. `ui`, `strapi`
 
 ### Optional config vars
 
-- `TURBO_VERSION` – turbo version to download (default: `2.7.3`)
+- `TURBO_VERSION` – turbo version to download (default: `2.7.3`). Should match the version in your repo's package.json
 
 ## Heroku artifacts copied to repo root
 
