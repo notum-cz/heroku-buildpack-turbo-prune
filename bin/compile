@@ -32,9 +32,11 @@ download_turbo() {
 
   echo "Downloading turbo from: $url..." >&2
   curl -fsSL "$url" -o "$TMP/turbo.tgz"
+  
+  root_dir="$(tar -tzf "$TMP/turbo.tgz" | head -n 1 | cut -d/ -f1)"
   tar -xzf "$TMP/turbo.tgz" -C "$TMP"
 
-  pkgdir="$TMP/package"
+  pkgdir="$TMP/$root_dir"
 
   turbo_bin=""
   for candidate in \
