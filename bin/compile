@@ -105,7 +105,13 @@ mv out "$TMP/out"
 # Replace build dir with pruned tree contents.
 rm -rf ./* ./.??* ./.?* 2>/dev/null || true
 tar -C "$TMP/out/full" -cf - . | tar -C "$BUILD_DIR" -xf -
-cp -f "$TMP/out/yarn.lock" "$BUILD_DIR/yarn.lock"
+# Copy the pruned lockfile produced by `turbo prune`.
+# (turbo writes the lockfile next to `out/`, not inside `out/full/`.)
+for lockfile in yarn.lock pnpm-lock.yaml package-lock.json; do
+  if [[ -f "$TMP/out/$lockfile" ]]; then
+    cp -f "$TMP/out/$lockfile" "$BUILD_DIR/$lockfile"
+  fi
+done
 
 echo "turbo-prune: scope=$WORKSPACE turbo=$TURBO_VERSION"
 
