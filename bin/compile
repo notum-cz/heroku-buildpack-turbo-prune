@@ -29,6 +29,7 @@ trap 'rm -rf "$TMP"' EXIT
 download_turbo() {
   local url
   url="https://registry.npmjs.org/turbo-linux-64/-/turbo-linux-64-${TURBO_VERSION}.tgz"
+  echo "Downloading turbo from: $url..."
   curl -fsSL "$url" -o "$TMP/turbo.tgz"
   tar -xzf "$TMP/turbo.tgz" -C "$TMP"
   chmod +x "$TMP/package/bin/turbo"
