@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Heroku buildpack compile args:
+#   $1 = build dir, $2 = cache dir, $3 = env dir (config vars materialized as files)
 BUILD_DIR="$1"
 CACHE_DIR="$2"
 ENV_DIR="$3"
 
-# Load Heroku config vars (files) into env
+# Load Heroku config vars (files) into env:
+# Heroku exposes config vars as files in $ENV_DIR; filename becomes the env var name.
 if [[ -d "$ENV_DIR" ]]; then
   for e in "$ENV_DIR"/*; do
     [[ -f "$e" ]] || continue
@@ -13,6 +16,7 @@ if [[ -d "$ENV_DIR" ]]; then
   done
 fi
 
+# Turbo scope must be provided (e.g. @repo/ui) to determine what to prune/build.
 TURBO_SCOPE="${TURBO_SCOPE:-}"
 if [[ -z "$TURBO_SCOPE" ]]; then
   echo "Missing TURBO_SCOPE (e.g. @repo/ui). Aborting." >&2
@@ -21,23 +25,28 @@ fi
 
 cd "$BUILD_DIR"
 
+# Pin turbo version (override via TURBO_VERSION env var).
 TURBO_VERSION="${TURBO_VERSION:-2.7.3}"
 
+# Temp workspace for downloads and pruned output. Always cleaned up on exit.
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 download_turbo() {
-  local url pkgdir turbo_bin
+  # Download the platform-specific turbo binary tarball and return the extracted binary path.
+  local url root_dir pkgdir turbo_bin
   url="https://registry.npmjs.org/turbo-linux-64/-/turbo-linux-64-${TURBO_VERSION}.tgz"
 
   echo "Downloading turbo from: $url..." >&2
   curl -fsSL "$url" -o "$TMP/turbo.tgz"
-  
+
+  # npm tarballs typically contain a single top-level directory; capture it for extraction paths.
   root_dir="$(tar -tzf "$TMP/turbo.tgz" | head -n 1 | cut -d/ -f1)"
   tar -xzf "$TMP/turbo.tgz" -C "$TMP"
 
   pkgdir="$TMP/$root_dir"
 
+  # Try common binary locations first; fall back to a broader search if needed.
   turbo_bin=""
   for candidate in \
     "$pkgdir/bin/turbo" \
@@ -64,7 +73,8 @@ download_turbo() {
   echo "$turbo_bin"
 }
 
-# Always materialize strapi-types/generated if inputs exist
+# Always materialize strapi-types/generated if inputs exist.
+# This keeps the generated .d.ts files available after pruning for downstream packages that expect them.
 if [[ -d "packages/strapi-types" ]] && compgen -G "apps/strapi/types/generated/*.d.ts" >/dev/null; then
   rm -rf "packages/strapi-types/generated"
   mkdir -p "packages/strapi-types/generated"
@@ -73,15 +83,40 @@ fi
 
 TURBO_BIN="$(download_turbo)"
 
+# Disable turbo global warnings about being run as standalone binary before the Node buildpack runs.
+export TURBO_GLOBAL_WARNING_DISABLED=1
+
+# Run turbo prune to create a minimal workspace for the requested scope.
 rm -rf out
 "$TURBO_BIN" prune "$TURBO_SCOPE" --docker
 
-# Move the `out/` directory aside before wiping repo
+# Move the `out/` directory aside before wiping the repo working tree.
 mv out "$TMP/out"
 
-# Replace build dir with pruned tree
+# Replace build dir with pruned tree contents.
 rm -rf ./* ./.??* ./.?* 2>/dev/null || true
 tar -C "$TMP/out/full" -cf - . | tar -C "$BUILD_DIR" -xf -
 cp -f "$TMP/out/yarn.lock" "$BUILD_DIR/yarn.lock"
 
 echo "turbo-prune: scope=$TURBO_SCOPE turbo=$TURBO_VERSION"
+
+# PROCFILE must point to a Procfile *within* the monorepo; copy it to build root as `Procfile`.
+: "${PROCFILE:?PROCFILE was not set. Aborting}"
+
+SRC_PROCFILE="${BUILD_DIR}/${PROCFILE}"
+DST_PROCFILE="${BUILD_DIR}/Procfile"
+
+if [[ ! -f "$SRC_PROCFILE" ]]; then
+  echo "Procfile not found at: $SRC_PROCFILE" >&2
+  exit 1
+fi
+
+cp -f "$SRC_PROCFILE" "$DST_PROCFILE"
+echo "Copied $PROCFILE -> Procfile" >&2
+
+# If the app directory has an app.json (Heroku metadata), copy it to build root as well.
+APP_DIR="$(dirname "$SRC_PROCFILE")"
+if [[ -f "${APP_DIR}/app.json" ]]; then
+  cp -f "${APP_DIR}/app.json" "${BUILD_DIR}/app.json"
+  echo "Copied ${PROCFILE%/*}/app.json -> app.json" >&2
+fi
